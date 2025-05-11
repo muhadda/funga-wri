@@ -3,7 +3,8 @@ import React from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Code } from "@/components/Code";
-import { Download } from "lucide-react";
+import { Download, AlertCircle } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const BackendCode: React.FC = () => {
   const handleDownload = (filename: string, content: string) => {
@@ -82,20 +83,28 @@ def start_proxy():
     if proxy_running:
         return {"status": "already_running"}
     
-    opts = options.Options(listen_host='0.0.0.0', listen_port=8080)
-    proxy_master = DumpMaster(opts)
-    proxy_master.addons.add(request_recorder)
-    
-    # Start the proxy in a separate thread
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    async def start():
-        await proxy_master.run()
-    
-    proxy_running = True
-    asyncio.ensure_future(start())
-    return {"status": "started"}
+    try:
+        opts = options.Options(listen_host='0.0.0.0', listen_port=8080)
+        proxy_master = DumpMaster(opts)
+        proxy_master.addons.add(request_recorder)
+        
+        # Start the proxy in a separate thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        def run_proxy():
+            asyncio.run(proxy_master.run())
+            
+        import threading
+        proxy_thread = threading.Thread(target=run_proxy, daemon=True)
+        proxy_thread.start()
+        
+        proxy_running = True
+        print("Proxy started successfully on port 8080")
+        return {"status": "started"}
+    except Exception as e:
+        print(f"Error starting proxy: {e}")
+        return {"status": "error", "message": str(e)}
 
 def stop_proxy():
     global proxy_master, proxy_running
@@ -104,11 +113,15 @@ def stop_proxy():
         return {"status": "not_running"}
     
     if proxy_master:
-        proxy_master.shutdown()
-        proxy_master = None
-        
-    proxy_running = False
-    return {"status": "stopped"}
+        try:
+            proxy_master.shutdown()
+            proxy_master = None
+            proxy_running = False
+            print("Proxy stopped successfully")
+            return {"status": "stopped"}
+        except Exception as e:
+            print(f"Error stopping proxy: {e}")
+            return {"status": "error", "message": str(e)}
 
 @app.route('/api/proxy/status', methods=['GET'])
 def get_proxy_status():
@@ -122,12 +135,14 @@ def get_proxy_status():
 def toggle_proxy():
     global proxy_running
     
-    if proxy_running:
-        result = stop_proxy()
-    else:
-        result = start_proxy()
-        
-    return jsonify(result)
+    try:
+        if proxy_running:
+            result = stop_proxy()
+        else:
+            result = start_proxy()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/proxy/mode', methods=['POST'])
 def set_mode():
@@ -198,6 +213,13 @@ if __name__ == '__main__':
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        <Alert className="bg-yellow-900/30 border-yellow-900">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="text-yellow-200">
+            If you're experiencing issues starting the mitmproxy, make sure you have the correct version installed and that no other applications are using port 8080.
+          </AlertDescription>
+        </Alert>
+        
         <div>
           <div className="flex justify-between items-center mb-2">
             <h3 className="text-sm font-medium">requirements.txt</h3>
@@ -238,6 +260,17 @@ if __name__ == '__main__':
             <li>The backend API will be available at <code className="bg-blue-900/50 p-1 rounded">http://localhost:5000</code></li>
             <li>The proxy server will be available at <code className="bg-blue-900/50 p-1 rounded">http://localhost:8080</code> when started</li>
           </ol>
+        </div>
+        
+        <div className="bg-red-900/30 p-4 rounded-md border border-red-900 text-red-100">
+          <h3 className="font-medium mb-2">Common Issues:</h3>
+          <ul className="list-disc list-inside space-y-2 text-sm">
+            <li>Port 8080 is already in use by another application</li>
+            <li>Missing dependencies - check if all packages installed correctly</li>
+            <li>Permission issues - you may need to run with admin/sudo privileges</li>
+            <li>Firewall blocking the connections - check your firewall settings</li>
+            <li>Python version compatibility - ensure you're using Python 3.7+</li>
+          </ul>
         </div>
       </CardContent>
     </Card>
